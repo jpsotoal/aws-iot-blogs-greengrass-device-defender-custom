@@ -1,0 +1,125 @@
+diff --git a/AWSIoTDeviceDefenderAgentSDK/collector.py b/AWSIoTDeviceDefenderAgentSDK/collector.py
+index d200b63..cffb010 100755
+--- a/AWSIoTDeviceDefenderAgentSDK/collector.py
++++ b/AWSIoTDeviceDefenderAgentSDK/collector.py
+@@ -17,7 +17,7 @@ import socket
+ from AWSIoTDeviceDefenderAgentSDK import metrics
+ import argparse
+ from time import sleep
+-
++import random
+ 
+ class Collector(object):
+     """
+@@ -98,9 +98,22 @@ class Collector(object):
+                     print(ex)
+ 
+     @staticmethod
+-    def cpu_usage(metrics):
+-        cpu_percent = ps.cpu_percent(interval=None)
+-        metrics.add_cpu_usage(cpu_percent)
++    def gpu_load_per_inference(metrics):
++        try:
++            f = open("/var/gpu_load_fb", "r")
++            value = f.read().strip()
++        except:
++            value = 0
++        metrics.add_gpu_load_per_inference(value)
++
++    @staticmethod
++    def avg_inference_time(metrics):
++        try:
++            f = open("/var/gpu_inference_fb", "r")
++            value = f.read().strip()
++        except:
++            value = 0
++        metrics.add_avg_inference_time(value)
+ 
+     def collect_metrics(self):
+         """Sample system metrics and populate a metrics object suitable for publishing to Device Defender."""
+@@ -112,7 +125,8 @@ class Collector(object):
+         self.network_connections(metrics_current)
+ 
+         if self._use_custom_metrics:
+-            self.cpu_usage(metrics_current)
++            self.gpu_load_per_inference(metrics_current)
++            self.avg_inference_time(metrics_current)
+ 
+         self._last_metric = metrics_current
+         return metrics_current
+diff --git a/AWSIoTDeviceDefenderAgentSDK/metrics.py b/AWSIoTDeviceDefenderAgentSDK/metrics.py
+index 7482d05..eaaf1ce 100644
+--- a/AWSIoTDeviceDefenderAgentSDK/metrics.py
++++ b/AWSIoTDeviceDefenderAgentSDK/metrics.py
+@@ -60,7 +60,8 @@ class Metrics(object):
+         self.listening_udp_ports = []
+ 
+         # Custom Metrics
+-        self.cpu_metrics = []
++        self.avg_inference_time_metrics = []
++        self.gpu_load_per_inference_metrics = []
+ 
+         # Network Stats By Interface
+         self.total_counts = {}  # The raw values from the system
+@@ -174,17 +175,12 @@ class Metrics(object):
+         if new_conn not in self._net_connections:
+             self._net_connections.append(new_conn)
+ 
+-    def add_cpu_usage(self, cpu_usage):
+-        """
+-        Add cpu usage detials.
+-
+-        Parameters
+-        ----------
+-        cpu_uage: float
+-             representing the current system-wide CPU utilization as a percentage
+-        """
+-        self.cpu_metrics = {"number": cpu_usage}
+ 
++    def add_gpu_load_per_inference(self, gpu_load_per_inference):
++        self.gpu_load_per_inference_metrics = {"number": gpu_load_per_inference}
++    
++    def add_avg_inference_time(self, avg_inference_time):
++        self.avg_inference_time_metrics = {"number": avg_inference_time}
+ 
+     @property
+     def network_connections(self):
+@@ -258,7 +254,7 @@ class Metrics(object):
+         report = {t.header: header,
+                   t.metrics: metrics}
+ 
+-        if self.cpu_metrics:
+-            report[t.custom_metrics] = {t.cpu_usage: [self.cpu_metrics]}
++        if self.avg_inference_time_metrics:
++            report[t.custom_metrics] = {t.avg_inference_time: [self.avg_inference_time_metrics], t.gpu_load_per_inference: [self.gpu_load_per_inference_metrics]}
+ 
+         return report
+diff --git a/AWSIoTDeviceDefenderAgentSDK/tags.py b/AWSIoTDeviceDefenderAgentSDK/tags.py
+index 0b827e7..2f6cf08 100644
+--- a/AWSIoTDeviceDefenderAgentSDK/tags.py
++++ b/AWSIoTDeviceDefenderAgentSDK/tags.py
+@@ -39,7 +39,8 @@ class Tags(object):
+     PACKETS_OUT = ("packets_out", "po")
+     TOTAL = ("total", "t")
+     CUSTOM_METRICS = ("custom_metrics", "cmet")
+-    CPU_USAGE = "cpu_usage"
++    GPU_LOAD_PER_INFERENCE = "gpu_load_per_inference"
++    AVG_INFERENCE_TIME = "avg_inference_time"
+ 
+     def __init__(self, short_names=False):
+         self.short_names = short_names
+@@ -131,8 +132,12 @@ class Tags(object):
+         return self.get(self.TOTAL)
+ 
+     @property
+-    def cpu_usage(self):
+-        return self.CPU_USAGE
++    def gpu_load_per_inference(self):
++        return self.GPU_LOAD_PER_INFERENCE
++
++    @property
++    def avg_inference_time(self):
++        return self.AVG_INFERENCE_TIME
+ 
+     @property
+     def custom_metrics(self):
